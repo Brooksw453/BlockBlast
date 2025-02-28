@@ -1,0 +1,238 @@
+/* General page styling with a candy-colored background */
+body {
+  margin: 0;
+  font-family: sans-serif;
+  /* Candy-themed background: a soft gradient */
+  background: linear-gradient(45deg, #fbc2eb, #a6c1ee);
+  /* For a more detailed theme, you could use a candy land image:
+     Example: background-image: url('../assets/candy_land_bg.png'); */
+  background-size: cover;
+  background-position: center;
+  color: #333;
+}
+
+/* Centering and layout for the main game container */
+#gameContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative; /* for overlay positioning */
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+/* Start Menu styling */
+#startMenu {
+  text-align: center;
+  padding: 50px 20px;
+}
+#startMenu h1 {
+  font-size: 3em;
+  color: #ff66cc; /* candy pink title */
+  text-shadow: 2px 2px 0px #fff;
+  margin-bottom: 30px;
+}
+#startMenu button {
+  margin: 10px;
+}
+
+/* Button style (used for start, settings, etc.) */
+button {
+  background: #ff66cc; /* bright candy pink */
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  padding: 12px 24px;
+  font-size: 1.1em;
+  cursor: pointer;
+  transition: transform 0.1s ease, background 0.3s;
+}
+button:hover {
+  background: #ff85d6; /* slightly lighter on hover */
+}
+button:active {
+  transform: scale(0.97);
+}
+
+/* Settings modal panel styling */
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0,0,0,0.5); /* semi-transparent dark overlay */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal-content {
+  background: #fff;
+  border: 4px solid #ff66cc;
+  border-radius: 10px;
+  padding: 20px;
+  width: 300px;
+  text-align: center;
+}
+.modal-content h2 {
+  margin-top: 0;
+}
+.modal-content label {
+  display: inline-block;
+  margin: 10px 0 5px;
+  font-weight: bold;
+}
+.modal-content input[type=range] {
+  width: 100%;
+}
+.modal-content button {
+  margin-top: 15px;
+  width: 100%;
+  background: #ff66cc;
+}
+
+/* Scoreboard at top of game screen */
+#scoreBoard {
+  font-size: 1.2em;
+  margin-bottom: 10px;
+  text-align: center;
+}
+#scoreBoard #openSettings {
+  font-size: 0.8em;
+  padding: 5px 10px;
+  margin-left: 20px;
+  background: #6BCB77; /* a green button for in-game settings */
+  border-radius: 8px;
+}
+#scoreBoard #openSettings:hover {
+  background: #78e08f;
+}
+
+/* Game Board grid styling */
+#gameBoard {
+  display: grid;
+  /* 8x8 grid */
+  grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
+  gap: 5px;
+  /* Size the board responsively */
+  width: min(90vw, 500px);
+  height: min(90vw, 500px);
+  background: rgba(255,255,255,0.3); /* slight transparency to show bg */
+  padding: 5px;
+  border: 4px solid #fff;
+  border-radius: 10px;
+  box-shadow: 0 0 10px rgba(0,0,0,0.2);
+  position: relative;
+}
+.cell {
+  width: 100%;
+  height: 100%;
+  background: rgba(255,255,255,0.6); /* empty cell has a translucent white */
+  border-radius: 4px;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+/* Filled block colors (candy pieces) */
+.filled1 { background: #ff6666; }  /* red candy */
+.filled2 { background: #ffb366; }  /* orange candy */
+.filled3 { background: #ffe066; }  /* yellow candy */
+.filled4 { background: #66ff66; }  /* green candy */
+.filled5 { background: #66b3ff; }  /* blue candy */
+.filled6 { background: #c266ff; }  /* purple candy */
+.cell.filled1, .cell.filled2, .cell.filled3,
+.cell.filled4, .cell.filled5, .cell.filled6 {
+  border-radius: 6px; /* a bit more rounding on filled blocks */
+}
+
+/* Preview state for the current moving piece (ghost placement) */
+.cell.preview {
+  opacity: 0.5;
+}
+.cell.preview.invalid {
+  background: rgba(255, 0, 0, 0.5) !important; /* red tint if placement invalid */
+}
+
+/* Piece tray styling */
+#pieceTray {
+  display: flex;
+  justify-content: center;
+  margin: 15px 0;
+}
+/* Container for each piece preview */
+.piece {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  margin: 0 10px;
+  border: 2px dashed #fff;
+  border-radius: 8px;
+}
+/* Highlight the selected piece in the tray */
+.piece.selected {
+  border: 3px solid #ffd700; /* gold border for selected piece */
+}
+/* Small blocks inside piece preview */
+.mini-block {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  background: #ff66cc;
+  border-radius: 4px;
+}
+/* (Colors for mini-blocks can mirror filled colors for consistency) */
+.mini1 { background: #ff6666; }
+.mini2 { background: #ffb366; }
+.mini3 { background: #ffe066; }
+.mini4 { background: #66ff66; }
+.mini5 { background: #66b3ff; }
+.mini6 { background: #c266ff; }
+
+/* Game Over overlay styling */
+#gameOver {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(255,255,255,0.95);
+  border: 4px solid #ff66cc;
+  border-radius: 10px;
+  text-align: center;
+  padding: 30px;
+  z-index: 10;
+}
+#gameOver h2 {
+  font-size: 2em;
+  margin: 0 0 10px;
+  color: #ff66cc;
+}
+#gameOver p {
+  font-size: 1.1em;
+  margin: 5px 0;
+  color: #333;
+}
+#gameOver #restartButton {
+  background: #ff66cc;
+  padding: 10px 20px;
+  font-size: 1em;
+  margin-top: 10px;
+}
+
+/* Animation for placing blocks (pop-in effect) */
+@keyframes pop-in {
+  0%   { transform: scale(0); }
+  80%  { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+.cell.placed {
+  animation: pop-in 0.2s ease;
+}
+/* Animation for clearing lines (flash effect) */
+@keyframes flash {
+  0%, 100% { background-color: #fff; }
+  50% { background-color: #ffff66; } /* yellow flash */
+}
+.cell.clearing {
+  animation: flash 0.5s ease;
+}
