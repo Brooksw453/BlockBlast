@@ -554,3 +554,94 @@ window.addEventListener('load', () => {
   if (gameoverSound) gameoverSound.volume = sfxVol;
   // The game will start when Start Game button is clicked
 });
+// ... (Your existing game.js code)
+
+// ----- Existing functions, event listeners, etc. ----- //
+// (Assuming your pickUpPiece, showPreview, confirmPlacePiece, etc. are defined above)
+
+// MOBILE TOUCH SUPPORT
+// Add a touchstart event listener to each piece in the tray when rendering the tray:
+function renderPieceTray() {
+  pieceTrayElement.innerHTML = ''; // clear current tray display
+  pieceTray.forEach((piece, index) => {
+    // Create container div for the piece
+    const pieceDiv = document.createElement('div');
+    pieceDiv.classList.add('piece');
+    if (index === currentPieceIndex && !movingPiece) {
+      // Highlight if this piece is currently selected (in selection mode)
+      pieceDiv.classList.add('selected');
+    }
+    if (piece.placed) {
+      pieceDiv.style.opacity = '0.3'; // dim the piece if already placed
+    }
+    // Determine shape bounds to center it in the preview box
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    piece.shape.forEach(([dx, dy]) => {
+      if (dx < minX) minX = dx;
+      if (dy < minY) minY = dy;
+      if (dx > maxX) maxX = dx;
+      if (dy > maxY) maxY = dy;
+    });
+    const shapeWidth = maxX - minX + 1;
+    const shapeHeight = maxY - minY + 1;
+    const offsetX = Math.floor((4 - shapeWidth) / 2);
+    const offsetY = Math.floor((4 - shapeHeight) / 2);
+    const blockSize = 18; // size of mini-block in px
+    piece.shape.forEach(([dx, dy]) => {
+      const mini = document.createElement('div');
+      mini.classList.add('mini-block');
+      if (piece.color) {
+        mini.classList.add('mini' + piece.color);
+      }
+      const left = (dx - minX + offsetX) * blockSize;
+      const top = (dy - minY + offsetY) * blockSize;
+      mini.style.left = left + 'px';
+      mini.style.top = top + 'px';
+      pieceDiv.appendChild(mini);
+    });
+    // Add touchstart listener for mobile: when a user taps a piece, pick it up.
+    pieceDiv.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      pickUpPiece(index);
+    }, false);
+    pieceTrayElement.appendChild(pieceDiv);
+  });
+}
+
+// Add touch event handlers on the game board for dragging the piece
+function onBoardTouchMove(e) {
+  if (!movingPiece) return;
+  e.preventDefault();
+  const touch = e.touches[0];
+  const boardRect = gameBoardElement.getBoundingClientRect();
+  // Calculate relative touch position on the board
+  let x = touch.clientX - boardRect.left;
+  let y = touch.clientY - boardRect.top;
+  // Calculate cell width/height (board is an 8x8 grid)
+  const cellWidth = boardRect.width / cols;
+  const cellHeight = boardRect.height / rows;
+  let newCol = Math.floor(x / cellWidth);
+  let newRow = Math.floor(y / cellHeight);
+  // Clamp the values to be within the board boundaries
+  newCol = Math.max(0, Math.min(newCol, cols - 1));
+  newRow = Math.max(0, Math.min(newRow, rows - 1));
+  currentPieceRow = newRow;
+  currentPieceCol = newCol;
+  showPreview(pieceTray[currentPieceIndex], currentPieceRow, currentPieceCol);
+}
+
+function onBoardTouchEnd(e) {
+  if (!movingPiece) return;
+  e.preventDefault();
+  // Confirm the placement of the piece when the touch ends
+  confirmPlacePiece();
+}
+
+// Attach touch event listeners to the game board
+gameBoardElement.addEventListener('touchmove', onBoardTouchMove, false);
+gameBoardElement.addEventListener('touchend', onBoardTouchEnd, false);
+gameBoardElement.addEventListener('touchcancel', onBoardTouchEnd, false);
+
+// ----- End of Mobile Touch Support Code ----- //
+
+// ... (Any remaining code)
