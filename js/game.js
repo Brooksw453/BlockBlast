@@ -79,6 +79,35 @@ const gameoverSound = document.getElementById('gameoverSound');
 const sfxVolumeSlider = document.getElementById('sfxVolume');
 
 // ---------- Sound Helper ----------
+let audioUnlocked = false;
+
+// Unlock audio on first user interaction (required by browsers & iframes)
+function unlockAudio() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+
+  // Create and play a silent buffer to unlock the audio context
+  const sounds = [placeSound, clearSound, gameoverSound];
+  sounds.forEach(s => {
+    if (s) {
+      s.volume = 0;
+      s.play().then(() => {
+        s.pause();
+        s.currentTime = 0;
+        s.volume = parseFloat(sfxVolumeSlider.value);
+      }).catch(() => {});
+    }
+  });
+
+  // Remove listeners after unlock
+  document.removeEventListener('touchstart', unlockAudio);
+  document.removeEventListener('mousedown', unlockAudio);
+  document.removeEventListener('keydown', unlockAudio);
+}
+document.addEventListener('touchstart', unlockAudio, { once: true });
+document.addEventListener('mousedown', unlockAudio, { once: true });
+document.addEventListener('keydown', unlockAudio, { once: true });
+
 function playSound(sound) {
   if (!sound) return;
   sound.currentTime = 0;
@@ -244,6 +273,7 @@ function showPreview(piece, topLeftRow, topLeftCol) {
 }
 
 // ---------- Line Clearing ----------
+// Check and clear full rows/columns. Returns { count, cells } for this pass only.
 function clearFullLines() {
   let linesCleared = 0;
   const clearedCells = [];
@@ -289,6 +319,194 @@ function clearFullLines() {
   }
 
   return { count: linesCleared, cells: clearedCells };
+}
+
+// ---------- Gravity ----------
+// Drop blocks down to fill empty gaps. Returns array of { fromR, fromC, toR, color } moves.
+function applyGravity() {
+  const moves = [];
+
+  for (let c = 0; c < cols; c++) {
+    // Start from bottom, find empty cells and pull blocks down
+    let writeRow = rows - 1;
+    for (let r = rows - 1; r >= 0; r--) {
+      if (board[r][c] !== 0) {
+        if (r !== writeRow) {
+          moves.push({ fromR: r, fromC: c, toR: writeRow, color: board[r][c] });
+          board[writeRow][c] = board[r][c];
+          board[r][c] = 0;
+        }
+        writeRow--;
+      }
+    }
+  }
+
+  return moves;
+}
+
+// Animate gravity drops on the DOM, then re-render
+function animateGravityDrops(moves, callback) {
+  if (moves.length === 0) {
+    callback();
+    return;
+  }
+
+  const cells = gameBoardElement.getElementsByClassName('cell');
+
+  moves.forEach(({ fromR, fromC, toR, color }) => {
+    const fromIndex = fromR * cols + fromC;
+    const toIndex = toR * cols + fromC;
+    const fromElem = cells[fromIndex];
+    const toElem = cells[toIndex];
+    const cellHeight = fromElem.getBoundingClientRect().height + 4; // include gap
+    const dropDistance = (toR - fromR) * cellHeight;
+
+    // Temporarily show the block at its original position with a drop animation
+    fromElem.classList.add('filled' + color);
+    fromElem.style.transition = 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)';
+    fromElem.style.transform = `translateY(${dropDistance}px)`;
+    fromElem.style.zIndex = '5';
+  });
+
+  // After animation completes, render the actual board state
+  setTimeout(() => {
+    // Clear transition styles
+    const allCells = gameBoardElement.getElementsByClassName('cell');
+    for (let cell of allCells) {
+      cell.style.transition = '';
+      cell.style.transform = '';
+      cell.style.zIndex = '';
+    }
+    renderBoard();
+    callback();
+  }, 280);
+}
+
+// ---------- Cascade System ----------
+// Runs the full cascade loop: clear → particles → gravity → re-check → repeat
+function runCascade(cascadeLevel, totalLinesCleared, totalClearedCells) {
+  const { count: linesCleared, cells: clearedCells } = clearFullLines();
+
+  if (linesCleared === 0) {
+    // No more clears — cascade is done
+    finishCascade(totalLinesCleared, totalClearedCells);
+    return;
+  }
+
+  totalLinesCleared += linesCleared;
+  totalClearedCells.push(...clearedCells);
+
+  // Increase combo for each cascade level
+  combo++;
+  const multiplier = Math.min(combo, 5);
+
+  // Score: lines * 10 * multiplier, cascade bonus for levels > 0
+  let lineScore = linesCleared * 10 * multiplier;
+  if (linesCleared >= 2) lineScore += linesCleared * 5;
+  if (cascadeLevel > 0) lineScore += linesCleared * 15; // cascade bonus
+  score += lineScore;
+
+  // Show combo
+  if (combo >= 2) {
+    showCombo(multiplier);
+  }
+
+  // Screen shake scales with cascade level
+  if (linesCleared >= 2 || combo >= 3 || cascadeLevel > 0) {
+    screenShake(2 + linesCleared + cascadeLevel, 250);
+  }
+
+  // Particle effects
+  if (typeof particles !== 'undefined') {
+    setTimeout(() => {
+      particles.emitLineClear(clearedCells, gameBoardElement);
+
+      if (combo >= 2) {
+        const boardRect = gameBoardElement.getBoundingClientRect();
+        particles.emitCombo(
+          boardRect.left + boardRect.width / 2,
+          boardRect.top + boardRect.height / 2,
+          multiplier
+        );
+      }
+    }, 200);
+
+    // Score popup
+    const midCell = clearedCells[Math.floor(clearedCells.length / 2)];
+    const cellElems = gameBoardElement.getElementsByClassName('cell');
+    const midElem = cellElems[midCell.r * cols + midCell.c];
+    if (midElem) {
+      const pos = midElem.getBoundingClientRect();
+      const cascadeText = cascadeLevel > 0 ? ' CASCADE!' : '';
+      const text = combo >= 2 ? `+${lineScore} x${multiplier}${cascadeText}` : `+${lineScore}${cascadeText}`;
+      const popupColor = cascadeLevel > 0 ? '#ffff00' : '#00ffff';
+      particles.emitScorePopup(pos.left + pos.width / 2, pos.top, text, popupColor);
+    }
+  }
+
+  animateScore(score);
+
+  // After flash animation, apply gravity then check for more clears
+  setTimeout(() => {
+    renderBoard();
+
+    // Apply gravity
+    const gravityMoves = applyGravity();
+
+    if (gravityMoves.length > 0) {
+      // Animate the drops, then check for new clears (cascade)
+      animateGravityDrops(gravityMoves, () => {
+        // Small pause before next cascade check for visual drama
+        setTimeout(() => {
+          runCascade(cascadeLevel + 1, totalLinesCleared, totalClearedCells);
+        }, 150);
+      });
+    } else {
+      // No gravity needed, but still check for cascade (column clears might not trigger gravity)
+      finishCascade(totalLinesCleared, totalClearedCells);
+    }
+  }, 400);
+}
+
+// Called when the cascade loop is fully done
+function finishCascade(totalLinesCleared, totalClearedCells) {
+  // If nothing was cleared at all, reset combo
+  if (totalLinesCleared === 0) {
+    combo = 0;
+    hideCombo();
+  }
+
+  // Check for perfect clear
+  const isPerfect = board.every(row => row.every(cell => cell === 0));
+  if (isPerfect) {
+    score += 50;
+    if (typeof particles !== 'undefined') {
+      particles.emitPerfectClear(gameBoardElement);
+      const boardRect = gameBoardElement.getBoundingClientRect();
+      particles.emitScorePopup(
+        boardRect.left + boardRect.width / 2,
+        boardRect.top + boardRect.height / 2,
+        'PERFECT! +50',
+        '#ffff00'
+      );
+    }
+    screenShake(5, 400);
+  }
+
+  animateScore(score);
+  updateHighScore();
+
+  // Generate new pieces if all placed
+  if (pieceTray.every(p => p.placed)) {
+    generatePieces();
+  }
+
+  renderPieceTray();
+
+  // Check game over
+  if (checkGameOver()) {
+    triggerGameOver();
+  }
 }
 
 // ---------- Scoring ----------
@@ -390,7 +608,6 @@ function confirmPlacePiece() {
 
   // Place on board
   placePieceOnBoard(piece, currentPieceRow, currentPieceCol);
-  const oldScore = score;
   score += piece.shape.length;
 
   // Mark placed
@@ -411,102 +628,16 @@ function confirmPlacePiece() {
 
   playSound(placeSound);
   renderBoard();
+  animateScore(score);
 
   // Placement particles
   if (typeof particles !== 'undefined') {
     particles.emitBlockPlace(placedCells, gameBoardElement, piece.color);
   }
 
-  // Clear lines
-  const { count: linesCleared, cells: clearedCells } = clearFullLines();
-
-  if (linesCleared > 0) {
-    combo++;
-    const multiplier = Math.min(combo, 5);
-
-    // Score: lines * 10 * multiplier, plus multi-line bonus
-    let lineScore = linesCleared * 10 * multiplier;
-    if (linesCleared >= 2) lineScore += linesCleared * 5;
-    score += lineScore;
-
-    // Show combo
-    if (combo >= 2) {
-      showCombo(multiplier);
-    }
-
-    // Screen shake for big clears
-    if (linesCleared >= 2 || combo >= 3) {
-      screenShake(2 + linesCleared, 250);
-    }
-
-    // Particle effects
-    if (typeof particles !== 'undefined') {
-      // Delay particle burst slightly to sync with flash animation
-      setTimeout(() => {
-        particles.emitLineClear(clearedCells, gameBoardElement);
-
-        if (combo >= 2) {
-          const boardRect = gameBoardElement.getBoundingClientRect();
-          particles.emitCombo(
-            boardRect.left + boardRect.width / 2,
-            boardRect.top + boardRect.height / 2,
-            multiplier
-          );
-        }
-      }, 200);
-
-      // Score popup
-      const midCell = clearedCells[Math.floor(clearedCells.length / 2)];
-      const cells = gameBoardElement.getElementsByClassName('cell');
-      const midElem = cells[midCell.r * cols + midCell.c];
-      if (midElem) {
-        const pos = midElem.getBoundingClientRect();
-        const text = combo >= 2 ? `+${lineScore} x${multiplier}` : `+${lineScore}`;
-        particles.emitScorePopup(pos.left + pos.width / 2, pos.top, text, '#00ffff');
-      }
-    }
-
-    // Re-render after flash
-    setTimeout(() => {
-      renderBoard();
-
-      // Check for perfect clear
-      const isPerfect = board.every(row => row.every(cell => cell === 0));
-      if (isPerfect) {
-        score += 50;
-        if (typeof particles !== 'undefined') {
-          particles.emitPerfectClear(gameBoardElement);
-          const boardRect = gameBoardElement.getBoundingClientRect();
-          particles.emitScorePopup(
-            boardRect.left + boardRect.width / 2,
-            boardRect.top + boardRect.height / 2,
-            'PERFECT! +50',
-            '#ffff00'
-          );
-        }
-        screenShake(5, 400);
-        animateScore(score);
-      }
-    }, 450);
-  } else {
-    combo = 0;
-    hideCombo();
-  }
-
-  animateScore(score);
-  updateHighScore();
-
-  // Generate new pieces if all placed
-  if (pieceTray.every(p => p.placed)) {
-    generatePieces();
-  }
-
-  renderPieceTray();
-
-  // Check game over
-  if (checkGameOver()) {
-    triggerGameOver();
-  }
+  // Start the cascade system: clear → gravity → re-check → repeat
+  // cascadeLevel 0 = initial clear from placement
+  runCascade(0, 0, []);
 }
 
 // ---------- Drag & Drop (Mouse + Touch) ----------

@@ -286,7 +286,8 @@ button:active {
   background: rgba(0, 255, 255, 0.03);
   border: 0.5px solid rgba(0, 255, 255, 0.05);
   border-radius: 4px;
-  transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+  position: relative;
 }
 
 /* ---------- Neon Block Colors ---------- */
