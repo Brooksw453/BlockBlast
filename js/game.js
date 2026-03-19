@@ -1,38 +1,59 @@
-// Game configuration and state variables
+/* ============================================
+   Block Blast // Neon Edition — Game Logic
+   ============================================ */
+
+// ---------- Game Configuration ----------
 const rows = 8;
 const cols = 8;
-let board = [];  // 2D array to represent the board state (0 = empty, >0 = filled with color index)
+let board = [];
 let score = 0;
+let displayedScore = 0;
 let highScore = 0;
 let gameOver = false;
 
-// Define block shapes (Block Blast-style pieces)
-// Each shape is an array of [dx, dy] offsets for blocks relative to the shape's top-left corner
+// Combo & streak
+let combo = 0;
+let lastPlacementCleared = false;
+
+// ---------- Block Shapes ----------
 const shapes = [
   [[0,0]],                                         // Single block
-  [[0,0],[1,0]],                                   // 2-block line (horizontal)
-  [[0,0],[1,0],[2,0]],                             // 3-block line (horizontal)
-  [[0,0],[0,1]],                                   // 2-block line (vertical)
-  [[0,0],[0,1],[0,2]],                             // 3-block line (vertical)
-  [[0,0],[1,0],[0,1]],                             // L shape (3 blocks)
-  [[0,0],[1,0],[2,0],[1,1]],                       // T shape (4 blocks)
+  [[0,0],[1,0]],                                   // 2-block horizontal
+  [[0,0],[1,0],[2,0]],                             // 3-block horizontal
+  [[0,0],[0,1]],                                   // 2-block vertical
+  [[0,0],[0,1],[0,2]],                             // 3-block vertical
+  [[0,0],[1,0],[0,1]],                             // L shape (3)
+  [[0,0],[1,0],[2,0],[1,1]],                       // T shape (4)
   [[0,0],[1,0],[0,1],[1,1]],                       // 2x2 square
-  [[0,0],[1,0],[2,0],[3,0]],                       // 4-block line (horizontal)
-  [[0,0],[0,1],[0,2],[0,3]]                        // 4-block line (vertical)
-  // (Additional shapes can be added if desired)
+  [[0,0],[1,0],[2,0],[3,0]],                       // 4-block horizontal
+  [[0,0],[0,1],[0,2],[0,3]],                       // 4-block vertical
+  // New shapes for variety
+  [[0,0],[0,1],[0,2],[1,2],[2,2]],                 // 5-block L
+  [[0,0],[1,0],[2,0],[0,1],[1,1],[2,1],[0,2],[1,2],[2,2]], // 3x3 square
+  [[0,0],[1,0],[1,1],[2,1]],                       // Zigzag horizontal
+  [[0,0],[0,1],[1,1],[1,2]],                       // Zigzag vertical
+  [[1,0],[0,1],[1,1],[2,1],[1,2]],                 // Plus/cross
+  [[0,0],[1,0],[2,0],[3,0],[4,0]],                 // 5-block horizontal
+  [[0,0],[0,1],[0,2],[0,3],[0,4]],                 // 5-block vertical
+  [[0,0],[1,0],[2,0],[2,1]],                       // L shape (4, right)
+  [[0,0],[1,0],[0,1],[0,2]],                       // L shape (4, left)
 ];
-// Color indices correspond to CSS classes filled1..filled6. We will assign colors 1-6 randomly to pieces.
 const maxColorIndex = 6;
 
-// Piece tray and selection
-let pieceTray = [];       // Will hold up to 3 piece objects: {shape: [...], color: n, placed: bool}
-let currentPieceIndex = 0;  // Index in pieceTray of the currently selected piece
-let movingPiece = false;    // Whether a piece is currently picked up for moving (selection confirmed)
+// ---------- Piece Tray ----------
+let pieceTray = [];
+let currentPieceIndex = 0;
+let movingPiece = false;
+let currentPieceRow = 0;
+let currentPieceCol = 0;
 
-// References to DOM elements
+// ---------- Drag State ----------
+let isDragging = false;
+let dragGhost = null;
+
+// ---------- DOM References ----------
 const startMenu = document.getElementById('startMenu');
 const gameContainer = document.getElementById('gameContainer');
-const scoreBoard = document.getElementById('scoreBoard');
 const scoreSpan = document.getElementById('score');
 const highScoreSpan = document.getElementById('highScore');
 const highScoreDisplay = document.getElementById('highScoreDisplay');
@@ -41,51 +62,53 @@ const pieceTrayElement = document.getElementById('pieceTray');
 const gameOverOverlay = document.getElementById('gameOver');
 const finalScoreSpan = document.getElementById('finalScore');
 const gameOverHighScore = document.getElementById('gameOverHighScore');
+const comboDisplay = document.getElementById('comboDisplay');
+const comboCount = document.getElementById('comboCount');
+
 // Buttons
 const startButton = document.getElementById('startButton');
 const settingsButton = document.getElementById('settingsButton');
 const openSettingsButton = document.getElementById('openSettings');
 const closeSettingsButton = document.getElementById('closeSettings');
 const restartButton = document.getElementById('restartButton');
-// Audio elements
-const bgMusic = document.getElementById('bgMusic');
+
+// Audio
 const placeSound = document.getElementById('placeSound');
 const clearSound = document.getElementById('clearSound');
 const gameoverSound = document.getElementById('gameoverSound');
-// Volume controls
-const musicVolumeSlider = document.getElementById('musicVolume');
 const sfxVolumeSlider = document.getElementById('sfxVolume');
 
-// Initialize board array and create board cells in the DOM
+// ---------- Sound Helper ----------
+function playSound(sound) {
+  if (!sound) return;
+  sound.currentTime = 0;
+  sound.play().catch(() => {});
+}
+
+// ---------- Board ----------
 function initBoard() {
   board = [];
-  gameBoardElement.innerHTML = ''; // clear existing cells
+  gameBoardElement.innerHTML = '';
   for (let r = 0; r < rows; r++) {
     board[r] = [];
     for (let c = 0; c < cols; c++) {
       board[r][c] = 0;
-      // Create a div for each cell and append to gameBoard
       const cell = document.createElement('div');
       cell.classList.add('cell');
-      // Optionally assign an id or data attribute for debugging (e.g., cell-0-0)
-      // cell.id = `cell-${r}-${c}`;
       gameBoardElement.appendChild(cell);
     }
   }
 }
 
-// Render the board state to the DOM
 function renderBoard() {
   const cells = gameBoardElement.getElementsByClassName('cell');
   let index = 0;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const cellElem = cells[index];
-      // Reset cell classes (preserve base 'cell' class, remove others)
       cellElem.className = 'cell';
       const value = board[r][c];
       if (value > 0) {
-        // Add filled class corresponding to color index
         cellElem.classList.add('filled' + value);
       }
       index++;
@@ -93,109 +116,110 @@ function renderBoard() {
   }
 }
 
-// Generate a new set of up to 3 pieces for the tray
+// ---------- Piece Generation ----------
 function generatePieces() {
   pieceTray = [];
   for (let i = 0; i < 3; i++) {
     const shapeIndex = Math.floor(Math.random() * shapes.length);
     const shape = shapes[shapeIndex];
-    const color = Math.floor(Math.random() * maxColorIndex) + 1; // random 1..6
-    pieceTray.push({ shape: shape, color: color, placed: false });
+    const color = Math.floor(Math.random() * maxColorIndex) + 1;
+    pieceTray.push({ shape, color, placed: false });
   }
   currentPieceIndex = 0;
   movingPiece = false;
   renderPieceTray();
 }
 
-// Render the piece tray UI
+// ---------- Piece Tray Rendering ----------
 function renderPieceTray() {
-  pieceTrayElement.innerHTML = ''; // clear current tray display
+  pieceTrayElement.innerHTML = '';
   pieceTray.forEach((piece, index) => {
-    // Create container div for the piece
     const pieceDiv = document.createElement('div');
     pieceDiv.classList.add('piece');
     if (index === currentPieceIndex && !movingPiece) {
-      // Highlight if this piece is currently selected (in selection mode)
       pieceDiv.classList.add('selected');
     }
     if (piece.placed) {
-      pieceDiv.style.opacity = '0.3'; // dim the piece if already placed
+      pieceDiv.style.opacity = '0.2';
+      pieceDiv.style.pointerEvents = 'none';
     }
-    // Determine shape bounds to center it in the preview box
+
+    // Calculate shape bounds for centering
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     piece.shape.forEach(([dx, dy]) => {
-      if (dx < minX) minX = dx;
-      if (dy < minY) minY = dy;
-      if (dx > maxX) maxX = dx;
-      if (dy > maxY) maxY = dy;
+      minX = Math.min(minX, dx);
+      minY = Math.min(minY, dy);
+      maxX = Math.max(maxX, dx);
+      maxY = Math.max(maxY, dy);
     });
     const shapeWidth = maxX - minX + 1;
     const shapeHeight = maxY - minY + 1;
-    // We use a 4x4 preview box (80px). Compute offset to center the shape within 4x4 if smaller.
-    const offsetX = Math.floor((4 - shapeWidth) / 2);
-    const offsetY = Math.floor((4 - shapeHeight) / 2);
-    const blockSize = 18; // size of mini-block in px (as set in CSS)
-    // Create mini-block divs for each part of the shape
+    const maxDim = Math.max(shapeWidth, shapeHeight, 4);
+    const blockSize = 18;
+    const offsetX = Math.floor((maxDim - shapeWidth) / 2);
+    const offsetY = Math.floor((maxDim - shapeHeight) / 2);
+
     piece.shape.forEach(([dx, dy]) => {
       const mini = document.createElement('div');
       mini.classList.add('mini-block');
-      // Apply color class corresponding to piece.color (if within 1-6 range)
-      if (piece.color) {
-        mini.classList.add('mini' + piece.color);
-      }
-      // Position the mini-block within the container
-      const left = (dx - minX + offsetX) * blockSize;
-      const top = (dy - minY + offsetY) * blockSize;
-      mini.style.left = left + 'px';
-      mini.style.top = top + 'px';
+      if (piece.color) mini.classList.add('mini' + piece.color);
+      mini.style.left = (dx - minX + offsetX) * blockSize + 'px';
+      mini.style.top = (dy - minY + offsetY) * blockSize + 'px';
       pieceDiv.appendChild(mini);
     });
+
+    // Mouse drag
+    pieceDiv.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      if (piece.placed) return;
+      startDrag(index, e.clientX, e.clientY);
+    });
+
+    // Touch drag
+    pieceDiv.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      if (piece.placed) return;
+      const touch = e.touches[0];
+      startDrag(index, touch.clientX, touch.clientY);
+    }, { passive: false });
+
     pieceTrayElement.appendChild(pieceDiv);
   });
 }
 
-// Check if a given piece (shape at given top-left position) can be placed on the board
+// ---------- Placement Logic ----------
 function canPlacePiece(piece, topLeftRow, topLeftCol) {
   for (const [dx, dy] of piece.shape) {
     const r = topLeftRow + dy;
     const c = topLeftCol + dx;
-    // Check bounds
-    if (r < 0 || r >= rows || c < 0 || c >= cols) {
-      return false;
-    }
-    // Check if cell is already occupied
-    if (board[r][c] !== 0) {
-      return false;
-    }
+    if (r < 0 || r >= rows || c < 0 || c >= cols) return false;
+    if (board[r][c] !== 0) return false;
   }
   return true;
 }
 
-// Place a piece onto the board (assuming canPlacePiece returned true)
 function placePieceOnBoard(piece, topLeftRow, topLeftCol) {
   for (const [dx, dy] of piece.shape) {
     const r = topLeftRow + dy;
     const c = topLeftCol + dx;
-    // Mark board cell with the piece's color index
     board[r][c] = piece.color;
   }
 }
 
-// Remove preview highlights from board
+// ---------- Preview ----------
 function clearPreview() {
   const cells = gameBoardElement.getElementsByClassName('cell');
   for (let cell of cells) {
-    cell.classList.remove('preview');
-    cell.classList.remove('invalid');
+    cell.classList.remove('preview', 'invalid',
+      'preview-1', 'preview-2', 'preview-3',
+      'preview-4', 'preview-5', 'preview-6');
   }
 }
 
-// Show preview of current moving piece at given position
 function showPreview(piece, topLeftRow, topLeftCol) {
-  const cells = gameBoardElement.getElementsByClassName('cell');
   clearPreview();
   let valid = true;
-  // First, check if placement would be valid (inside bounds and no overlap)
+
   for (const [dx, dy] of piece.shape) {
     const r = topLeftRow + dy;
     const c = topLeftCol + dx;
@@ -204,7 +228,7 @@ function showPreview(piece, topLeftRow, topLeftCol) {
       break;
     }
   }
-  // Then mark the cells for preview
+
   for (const [dx, dy] of piece.shape) {
     const r = topLeftRow + dy;
     const c = topLeftCol + dx;
@@ -212,247 +236,454 @@ function showPreview(piece, topLeftRow, topLeftCol) {
     const cellIndex = r * cols + c;
     const cellElem = gameBoardElement.getElementsByClassName('cell')[cellIndex];
     cellElem.classList.add('preview');
-    if (!valid) {
-      cellElem.classList.add('invalid');
-    }
+    cellElem.classList.add('preview-' + piece.color);
+    if (!valid) cellElem.classList.add('invalid');
   }
+
   return valid;
 }
 
-// Check and clear any full rows or columns. Returns number of lines cleared.
+// ---------- Line Clearing ----------
 function clearFullLines() {
   let linesCleared = 0;
+  const clearedCells = [];
+
   // Check rows
   for (let r = 0; r < rows; r++) {
     let full = true;
     for (let c = 0; c < cols; c++) {
-      if (board[r][c] === 0) {
-        full = false;
-        break;
-      }
+      if (board[r][c] === 0) { full = false; break; }
     }
     if (full) {
       linesCleared++;
-      // Mark row cells as clearing for animation
       for (let c = 0; c < cols; c++) {
+        clearedCells.push({ r, c, color: board[r][c] });
         const cellElem = gameBoardElement.getElementsByClassName('cell')[r * cols + c];
         cellElem.classList.add('clearing');
       }
-      // Clear the row in board data (set to 0)
-      for (let c = 0; c < cols; c++) {
-        board[r][c] = 0;
-      }
+      for (let c = 0; c < cols; c++) board[r][c] = 0;
     }
   }
+
   // Check columns
   for (let c = 0; c < cols; c++) {
     let full = true;
     for (let r = 0; r < rows; r++) {
-      if (board[r][c] === 0) {
-        full = false;
-        break;
-      }
+      if (board[r][c] === 0) { full = false; break; }
     }
     if (full) {
       linesCleared++;
-      // Mark column cells as clearing
       for (let r = 0; r < rows; r++) {
+        if (!clearedCells.some(cell => cell.r === r && cell.c === c)) {
+          clearedCells.push({ r, c, color: board[r][c] });
+        }
         const cellElem = gameBoardElement.getElementsByClassName('cell')[r * cols + c];
         cellElem.classList.add('clearing');
       }
-      // Clear the column in board data
-      for (let r = 0; r < rows; r++) {
-        board[r][c] = 0;
-      }
+      for (let r = 0; r < rows; r++) board[r][c] = 0;
     }
   }
+
   if (linesCleared > 0) {
-    // Play clear sound effect
-    if (clearSound) clearSound.play();
+    playSound(clearSound);
   }
-  return linesCleared;
+
+  return { count: linesCleared, cells: clearedCells };
 }
 
-// Update high score in localStorage and on screen if needed
+// ---------- Scoring ----------
+function animateScore(target) {
+  const startVal = displayedScore;
+  const diff = target - startVal;
+  if (diff === 0) return;
+  const duration = 400;
+  const startTime = performance.now();
+
+  function tick(now) {
+    const elapsed = now - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    // Ease out
+    const eased = 1 - Math.pow(1 - progress, 3);
+    displayedScore = Math.round(startVal + diff * eased);
+    scoreSpan.textContent = displayedScore;
+    if (progress < 1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
 function updateHighScore() {
   if (score > highScore) {
     highScore = score;
     localStorage.setItem('blockBlastHighScore', highScore);
   }
-  // Update displays
   highScoreSpan.textContent = highScore;
   highScoreDisplay.textContent = "High Score: " + highScore;
 }
 
-// Check if game is over (no moves possible with current pieces)
+function showCombo(multiplier) {
+  comboCount.textContent = multiplier;
+  comboDisplay.style.display = 'inline';
+  comboDisplay.style.animation = 'none';
+  // Force reflow
+  comboDisplay.offsetHeight;
+  comboDisplay.style.animation = 'comboPopIn 0.3s ease';
+}
+
+function hideCombo() {
+  comboDisplay.style.display = 'none';
+}
+
+// ---------- Screen Shake ----------
+function screenShake(intensity = 3, duration = 250) {
+  gameBoardElement.style.setProperty('--shake-intensity', intensity + 'px');
+  gameBoardElement.classList.add('shaking');
+  setTimeout(() => gameBoardElement.classList.remove('shaking'), duration);
+}
+
+// ---------- Game Over ----------
 function checkGameOver() {
-  // For each remaining piece in tray that is not placed, try to find at least one valid position
   for (let i = 0; i < pieceTray.length; i++) {
     if (pieceTray[i].placed) continue;
     const piece = pieceTray[i];
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        if (canPlacePiece(piece, r, c)) {
-          return false; // found a move, not game over
-        }
+        if (canPlacePiece(piece, r, c)) return false;
       }
     }
   }
   return true;
 }
 
-// Enter game over state
 function triggerGameOver() {
   gameOver = true;
-  // Stop any ongoing piece movement
   movingPiece = false;
+  isDragging = false;
+  removeDragGhost();
   clearPreview();
-  // Display Game Over overlay
-  finalScoreSpan.textContent = score;
-  // Update high score and show a message if new high score achieved
-  updateHighScore();
-  if (score === highScore && score !== 0) {
-    gameOverHighScore.textContent = "🎉 New High Score! 🎉";
-  } else {
-    gameOverHighScore.textContent = "High Score: " + highScore;
+  hideCombo();
+
+  // Particle rain
+  if (typeof particles !== 'undefined') {
+    particles.emitGameOver(gameBoardElement);
   }
-  gameOverOverlay.style.display = 'block';
-  // Play game over sound
-  if (gameoverSound) gameoverSound.play();
+
+  // Delay overlay to let particles play
+  setTimeout(() => {
+    finalScoreSpan.textContent = score;
+    updateHighScore();
+    if (score === highScore && score !== 0) {
+      gameOverHighScore.textContent = "New High Score!";
+    } else {
+      gameOverHighScore.textContent = "High Score: " + highScore;
+    }
+    gameOverOverlay.style.display = 'block';
+    playSound(gameoverSound);
+  }, 600);
 }
 
-// Start a new game (reset state and UI)
-function startGame() {
-  // Reset scores
-  score = 0;
-  scoreSpan.textContent = score;
-  // Initialize board and pieces
-  initBoard();
-  generatePieces();
-  // Hide start menu, show game interface
-  startMenu.style.display = 'none';
-  gameContainer.style.display = 'block';
-  gameOverOverlay.style.display = 'none';
-  gameOver = false;
-  // Start background music (if not already playing)
-  if (bgMusic) {
-    bgMusic.currentTime = 0;
-    bgMusic.play();
-  }
-}
-
-// Move selection highlight in the tray (left/right)
-function moveSelection(direction) {
-  if (movingPiece) return; // if already picked a piece, ignore
-  // direction: -1 for left, +1 for right
-  const prevIndex = currentPieceIndex;
-  currentPieceIndex += direction;
-  if (currentPieceIndex < 0) currentPieceIndex = 0;
-  if (currentPieceIndex > pieceTray.length - 1) currentPieceIndex = pieceTray.length - 1;
-  if (currentPieceIndex !== prevIndex) {
-    renderPieceTray();
-  }
-}
-
-// Variables for the currently moving piece position (if a piece is picked up)
-let currentPieceRow = 0;
-let currentPieceCol = 0;
-
-// Begin moving a piece (pick up from tray)
-function pickUpPiece(index) {
-  if (pieceTray[index].placed) return; // can't pick up if already placed
-  movingPiece = true;
-  currentPieceIndex = index;
-  // Initial position to try placing piece – start at top-left of board
-  currentPieceRow = 0;
-  currentPieceCol = 0;
-  // Show initial preview on board (at 0,0)
-  const piece = pieceTray[currentPieceIndex];
-  showPreview(piece, currentPieceRow, currentPieceCol);
-  renderPieceTray(); // update tray UI (remove highlight since now moving)
-}
-
-// Place the currently moving piece onto the board (if valid)
+// ---------- Confirm Placement ----------
 function confirmPlacePiece() {
   if (!movingPiece) return;
   const piece = pieceTray[currentPieceIndex];
-  // Check if current position is a valid placement
-  if (!canPlacePiece(piece, currentPieceRow, currentPieceCol)) {
-    // Invalid placement attempt; do nothing or maybe flash (already indicated by red preview)
-    return;
-  }
-  // Place the piece on the board
+
+  if (!canPlacePiece(piece, currentPieceRow, currentPieceCol)) return;
+
+  // Place on board
   placePieceOnBoard(piece, currentPieceRow, currentPieceCol);
-  // Update score (e.g., 1 point per block placed)
+  const oldScore = score;
   score += piece.shape.length;
-  // Mark piece as placed
+
+  // Mark placed
   pieceTray[currentPieceIndex].placed = true;
   movingPiece = false;
-  // Animate newly placed blocks (add 'placed' class briefly)
-  piece.shape.forEach(([dx, dy]) => {
-    const r = currentPieceRow + dy;
-    const c = currentPieceCol + dx;
+
+  // Collect placed cell positions for particles
+  const placedCells = piece.shape.map(([dx, dy]) => ({
+    r: currentPieceRow + dy,
+    c: currentPieceCol + dx
+  }));
+
+  // Animate placed blocks
+  placedCells.forEach(({ r, c }) => {
     const cellElem = gameBoardElement.getElementsByClassName('cell')[r * cols + c];
     cellElem.classList.add('placed');
   });
-  if (placeSound) placeSound.play(); // play block placement sound
-  renderBoard(); // update board display with new blocks
-  scoreSpan.textContent = score;
-  // Clear any completed lines
-  const lines = clearFullLines();
-  if (lines > 0) {
-    // Award extra points for cleared lines (e.g., 10 points each line)
-    score += lines * 10;
-    scoreSpan.textContent = score;
-    // After a short delay for the flash animation, re-render board
+
+  playSound(placeSound);
+  renderBoard();
+
+  // Placement particles
+  if (typeof particles !== 'undefined') {
+    particles.emitBlockPlace(placedCells, gameBoardElement, piece.color);
+  }
+
+  // Clear lines
+  const { count: linesCleared, cells: clearedCells } = clearFullLines();
+
+  if (linesCleared > 0) {
+    combo++;
+    const multiplier = Math.min(combo, 5);
+
+    // Score: lines * 10 * multiplier, plus multi-line bonus
+    let lineScore = linesCleared * 10 * multiplier;
+    if (linesCleared >= 2) lineScore += linesCleared * 5;
+    score += lineScore;
+
+    // Show combo
+    if (combo >= 2) {
+      showCombo(multiplier);
+    }
+
+    // Screen shake for big clears
+    if (linesCleared >= 2 || combo >= 3) {
+      screenShake(2 + linesCleared, 250);
+    }
+
+    // Particle effects
+    if (typeof particles !== 'undefined') {
+      // Delay particle burst slightly to sync with flash animation
+      setTimeout(() => {
+        particles.emitLineClear(clearedCells, gameBoardElement);
+
+        if (combo >= 2) {
+          const boardRect = gameBoardElement.getBoundingClientRect();
+          particles.emitCombo(
+            boardRect.left + boardRect.width / 2,
+            boardRect.top + boardRect.height / 2,
+            multiplier
+          );
+        }
+      }, 200);
+
+      // Score popup
+      const midCell = clearedCells[Math.floor(clearedCells.length / 2)];
+      const cells = gameBoardElement.getElementsByClassName('cell');
+      const midElem = cells[midCell.r * cols + midCell.c];
+      if (midElem) {
+        const pos = midElem.getBoundingClientRect();
+        const text = combo >= 2 ? `+${lineScore} x${multiplier}` : `+${lineScore}`;
+        particles.emitScorePopup(pos.left + pos.width / 2, pos.top, text, '#00ffff');
+      }
+    }
+
+    // Re-render after flash
     setTimeout(() => {
       renderBoard();
-    }, 500);
+
+      // Check for perfect clear
+      const isPerfect = board.every(row => row.every(cell => cell === 0));
+      if (isPerfect) {
+        score += 50;
+        if (typeof particles !== 'undefined') {
+          particles.emitPerfectClear(gameBoardElement);
+          const boardRect = gameBoardElement.getBoundingClientRect();
+          particles.emitScorePopup(
+            boardRect.left + boardRect.width / 2,
+            boardRect.top + boardRect.height / 2,
+            'PERFECT! +50',
+            '#ffff00'
+          );
+        }
+        screenShake(5, 400);
+        animateScore(score);
+      }
+    }, 450);
+  } else {
+    combo = 0;
+    hideCombo();
   }
-  // Update high score display (in case score exceeds it)
+
+  animateScore(score);
   updateHighScore();
-  // Generate new pieces if all in current tray have been placed
-  const allPlaced = pieceTray.every(p => p.placed);
-  if (allPlaced) {
+
+  // Generate new pieces if all placed
+  if (pieceTray.every(p => p.placed)) {
     generatePieces();
   }
-  // Re-render tray to reflect placed/removed pieces
+
   renderPieceTray();
-  // Check if game is over (no possible moves)
+
+  // Check game over
   if (checkGameOver()) {
     triggerGameOver();
   }
 }
 
-// Cancel moving a piece (put it back to tray selection without placing)
+// ---------- Drag & Drop (Mouse + Touch) ----------
+function startDrag(pieceIndex, clientX, clientY) {
+  if (gameOver) return;
+  if (pieceTray[pieceIndex].placed) return;
+
+  currentPieceIndex = pieceIndex;
+  movingPiece = true;
+  isDragging = true;
+  renderPieceTray();
+
+  // Create ghost element
+  createDragGhost(pieceTray[pieceIndex], clientX, clientY);
+
+  // Calculate initial board position
+  updateDragPosition(clientX, clientY);
+}
+
+function createDragGhost(piece, x, y) {
+  removeDragGhost();
+
+  dragGhost = document.createElement('div');
+  dragGhost.classList.add('drag-ghost');
+
+  let minX = Infinity, minY = Infinity;
+  piece.shape.forEach(([dx, dy]) => {
+    minX = Math.min(minX, dx);
+    minY = Math.min(minY, dy);
+  });
+
+  const blockSize = 40; // Larger ghost blocks
+  piece.shape.forEach(([dx, dy]) => {
+    const mini = document.createElement('div');
+    mini.classList.add('mini-block');
+    mini.classList.add('mini' + piece.color);
+    mini.style.width = blockSize + 'px';
+    mini.style.height = blockSize + 'px';
+    mini.style.left = (dx - minX) * (blockSize + 2) + 'px';
+    mini.style.top = (dy - minY) * (blockSize + 2) + 'px';
+    dragGhost.appendChild(mini);
+  });
+
+  document.body.appendChild(dragGhost);
+  positionGhost(x, y);
+}
+
+function positionGhost(x, y) {
+  if (!dragGhost) return;
+  // Offset above cursor/finger so user can see placement
+  dragGhost.style.left = (x - 40) + 'px';
+  dragGhost.style.top = (y - 80) + 'px';
+}
+
+function removeDragGhost() {
+  if (dragGhost) {
+    dragGhost.remove();
+    dragGhost = null;
+  }
+}
+
+function updateDragPosition(clientX, clientY) {
+  const boardRect = gameBoardElement.getBoundingClientRect();
+  const cellWidth = boardRect.width / cols;
+  const cellHeight = boardRect.height / rows;
+
+  // Use position offset above finger
+  const adjustedY = clientY - 60;
+
+  let newCol = Math.floor((clientX - boardRect.left) / cellWidth);
+  let newRow = Math.floor((adjustedY - boardRect.top) / cellHeight);
+
+  newCol = Math.max(0, Math.min(newCol, cols - 1));
+  newRow = Math.max(0, Math.min(newRow, rows - 1));
+
+  currentPieceRow = newRow;
+  currentPieceCol = newCol;
+
+  showPreview(pieceTray[currentPieceIndex], currentPieceRow, currentPieceCol);
+}
+
+function endDrag() {
+  if (!isDragging) return;
+  isDragging = false;
+  removeDragGhost();
+
+  // If over the board with valid placement, confirm
+  if (movingPiece) {
+    const piece = pieceTray[currentPieceIndex];
+    if (canPlacePiece(piece, currentPieceRow, currentPieceCol)) {
+      confirmPlacePiece();
+    } else {
+      cancelMovePiece();
+    }
+  }
+}
+
 function cancelMovePiece() {
-  if (!movingPiece) return;
   movingPiece = false;
-  // Simply re-render tray (which will highlight selection again) and clear preview
+  isDragging = false;
+  removeDragGhost();
   clearPreview();
   renderPieceTray();
 }
 
-// Handle keyboard controls
+// Global mouse/touch handlers for drag
+document.addEventListener('mousemove', (e) => {
+  if (!isDragging) return;
+  e.preventDefault();
+  positionGhost(e.clientX, e.clientY);
+  updateDragPosition(e.clientX, e.clientY);
+});
+
+document.addEventListener('mouseup', (e) => {
+  if (!isDragging) return;
+  endDrag();
+});
+
+document.addEventListener('touchmove', (e) => {
+  if (!isDragging) return;
+  e.preventDefault();
+  const touch = e.touches[0];
+  positionGhost(touch.clientX, touch.clientY);
+  updateDragPosition(touch.clientX, touch.clientY);
+}, { passive: false });
+
+document.addEventListener('touchend', (e) => {
+  if (!isDragging) return;
+  endDrag();
+});
+
+document.addEventListener('touchcancel', (e) => {
+  if (!isDragging) return;
+  cancelMovePiece();
+});
+
+// ---------- Keyboard Controls (secondary) ----------
+function moveSelection(direction) {
+  if (movingPiece) return;
+  const prevIndex = currentPieceIndex;
+  currentPieceIndex += direction;
+  currentPieceIndex = Math.max(0, Math.min(currentPieceIndex, pieceTray.length - 1));
+  // Skip placed pieces
+  while (currentPieceIndex >= 0 && currentPieceIndex < pieceTray.length &&
+         pieceTray[currentPieceIndex].placed) {
+    currentPieceIndex += direction;
+  }
+  currentPieceIndex = Math.max(0, Math.min(currentPieceIndex, pieceTray.length - 1));
+  if (currentPieceIndex !== prevIndex) renderPieceTray();
+}
+
+function pickUpPiece(index) {
+  if (pieceTray[index].placed) return;
+  movingPiece = true;
+  currentPieceIndex = index;
+  currentPieceRow = 3;
+  currentPieceCol = 3;
+  showPreview(pieceTray[currentPieceIndex], currentPieceRow, currentPieceCol);
+  renderPieceTray();
+}
+
 document.addEventListener('keydown', (e) => {
-  if (gameOver) return; // if game over, ignore inputs (until restart)
+  if (gameOver) return;
+  if (isDragging) return; // don't mix keyboard and mouse drag
+
   switch(e.key) {
     case 'ArrowLeft':
       if (movingPiece) {
-        // Move piece left on board
-        currentPieceCol -= 1;
-        // Prevent going out of bounds
-        currentPieceCol = Math.max(currentPieceCol, 0);
+        currentPieceCol = Math.max(0, currentPieceCol - 1);
         showPreview(pieceTray[currentPieceIndex], currentPieceRow, currentPieceCol);
       } else {
-        // Move tray selection left
         moveSelection(-1);
       }
       break;
     case 'ArrowRight':
       if (movingPiece) {
-        currentPieceCol += 1;
-        currentPieceCol = Math.min(currentPieceCol, cols - 1);
+        currentPieceCol = Math.min(cols - 1, currentPieceCol + 1);
         showPreview(pieceTray[currentPieceIndex], currentPieceRow, currentPieceCol);
       } else {
         moveSelection(1);
@@ -460,67 +691,65 @@ document.addEventListener('keydown', (e) => {
       break;
     case 'ArrowUp':
       if (movingPiece) {
-        currentPieceRow -= 1;
-        currentPieceRow = Math.max(currentPieceRow, 0);
+        currentPieceRow = Math.max(0, currentPieceRow - 1);
         showPreview(pieceTray[currentPieceIndex], currentPieceRow, currentPieceCol);
-      } else {
-        // (Optional: Could use ArrowUp/Down to rotate pieces if rotation was allowed)
       }
       break;
     case 'ArrowDown':
       if (movingPiece) {
-        currentPieceRow += 1;
-        currentPieceRow = Math.min(currentPieceRow, rows - 1);
+        currentPieceRow = Math.min(rows - 1, currentPieceRow + 1);
         showPreview(pieceTray[currentPieceIndex], currentPieceRow, currentPieceCol);
-      } else {
-        // (Not used for selection mode; down arrow could rotate as well or do nothing)
       }
       break;
-    case ' ': // Spacebar - confirm selection or toggle selection
-      e.preventDefault(); // prevent page scroll
-      if (!movingPiece) {
-        // Pick up the currently highlighted piece from the tray
-        pickUpPiece(currentPieceIndex);
-      } else {
-        // If desired, space could be used to drop the piece back (cancel), but here we don't use it for that
-      }
+    case ' ':
+      e.preventDefault();
+      if (!movingPiece) pickUpPiece(currentPieceIndex);
       break;
     case 'Enter':
-      if (movingPiece) {
-        // Place the piece on the board
-        confirmPlacePiece();
-      } else {
-        // If not moving a piece (in selection mode), Enter could act same as space (pick up)
-        pickUpPiece(currentPieceIndex);
-      }
+      if (movingPiece) confirmPlacePiece();
+      else pickUpPiece(currentPieceIndex);
       break;
     case 'Escape':
-      // Allow cancelling a piece placement with Esc
       cancelMovePiece();
       break;
   }
 });
 
-// Button event handlers
+// ---------- Start / Restart ----------
+function startGame() {
+  score = 0;
+  displayedScore = 0;
+  combo = 0;
+  scoreSpan.textContent = '0';
+  hideCombo();
+
+  initBoard();
+  generatePieces();
+
+  startMenu.style.display = 'none';
+  gameContainer.style.display = 'flex';
+  gameOverOverlay.style.display = 'none';
+  gameOver = false;
+
+  if (typeof particles !== 'undefined') {
+    particles.startAmbient();
+  }
+}
+
+// ---------- Button Handlers ----------
 startButton.addEventListener('click', startGame);
 restartButton.addEventListener('click', startGame);
 settingsButton.addEventListener('click', () => {
-  // Open settings from start menu
   document.getElementById('settingsPanel').style.display = 'flex';
 });
 openSettingsButton.addEventListener('click', () => {
-  // Open settings from in-game
   document.getElementById('settingsPanel').style.display = 'flex';
 });
 closeSettingsButton.addEventListener('click', () => {
   document.getElementById('settingsPanel').style.display = 'none';
 });
 
-// Volume control handlers
-musicVolumeSlider.addEventListener('input', () => {
-  const vol = parseFloat(musicVolumeSlider.value);
-  if (bgMusic) bgMusic.volume = vol;
-});
+// Volume control
 sfxVolumeSlider.addEventListener('input', () => {
   const vol = parseFloat(sfxVolumeSlider.value);
   if (placeSound) placeSound.volume = vol;
@@ -528,120 +757,18 @@ sfxVolumeSlider.addEventListener('input', () => {
   if (gameoverSound) gameoverSound.volume = vol;
 });
 
-// Initial setup on page load
+// ---------- Initial Setup ----------
 window.addEventListener('load', () => {
-  // Prepare board cells
   initBoard();
   renderBoard();
-  // Load high score from localStorage if exists
+
   const storedHighScore = localStorage.getItem('blockBlastHighScore');
-  if (storedHighScore) {
-    highScore = parseInt(storedHighScore, 10) || 0;
-  } else {
-    highScore = 0;
-  }
+  highScore = storedHighScore ? (parseInt(storedHighScore, 10) || 0) : 0;
   highScoreSpan.textContent = highScore;
   highScoreDisplay.textContent = "High Score: " + highScore;
-  // Ensure background music volume default and play if desired
-  if (bgMusic) {
-    bgMusic.volume = parseFloat(musicVolumeSlider.value);
-    // Note: Music will start on game start to comply with user gesture policies
-  }
-  // Set initial volume for sound effects
+
   const sfxVol = parseFloat(sfxVolumeSlider.value);
   if (placeSound) placeSound.volume = sfxVol;
   if (clearSound) clearSound.volume = sfxVol;
   if (gameoverSound) gameoverSound.volume = sfxVol;
-  // The game will start when Start Game button is clicked
 });
-// ... (Your existing game.js code)
-
-// ----- Existing functions, event listeners, etc. ----- //
-// (Assuming your pickUpPiece, showPreview, confirmPlacePiece, etc. are defined above)
-
-// MOBILE TOUCH SUPPORT
-// Add a touchstart event listener to each piece in the tray when rendering the tray:
-function renderPieceTray() {
-  pieceTrayElement.innerHTML = ''; // clear current tray display
-  pieceTray.forEach((piece, index) => {
-    // Create container div for the piece
-    const pieceDiv = document.createElement('div');
-    pieceDiv.classList.add('piece');
-    if (index === currentPieceIndex && !movingPiece) {
-      // Highlight if this piece is currently selected (in selection mode)
-      pieceDiv.classList.add('selected');
-    }
-    if (piece.placed) {
-      pieceDiv.style.opacity = '0.3'; // dim the piece if already placed
-    }
-    // Determine shape bounds to center it in the preview box
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    piece.shape.forEach(([dx, dy]) => {
-      if (dx < minX) minX = dx;
-      if (dy < minY) minY = dy;
-      if (dx > maxX) maxX = dx;
-      if (dy > maxY) maxY = dy;
-    });
-    const shapeWidth = maxX - minX + 1;
-    const shapeHeight = maxY - minY + 1;
-    const offsetX = Math.floor((4 - shapeWidth) / 2);
-    const offsetY = Math.floor((4 - shapeHeight) / 2);
-    const blockSize = 18; // size of mini-block in px
-    piece.shape.forEach(([dx, dy]) => {
-      const mini = document.createElement('div');
-      mini.classList.add('mini-block');
-      if (piece.color) {
-        mini.classList.add('mini' + piece.color);
-      }
-      const left = (dx - minX + offsetX) * blockSize;
-      const top = (dy - minY + offsetY) * blockSize;
-      mini.style.left = left + 'px';
-      mini.style.top = top + 'px';
-      pieceDiv.appendChild(mini);
-    });
-    // Add touchstart listener for mobile: when a user taps a piece, pick it up.
-    pieceDiv.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      pickUpPiece(index);
-    }, false);
-    pieceTrayElement.appendChild(pieceDiv);
-  });
-}
-
-// Add touch event handlers on the game board for dragging the piece
-function onBoardTouchMove(e) {
-  if (!movingPiece) return;
-  e.preventDefault();
-  const touch = e.touches[0];
-  const boardRect = gameBoardElement.getBoundingClientRect();
-  // Calculate relative touch position on the board
-  let x = touch.clientX - boardRect.left;
-  let y = touch.clientY - boardRect.top;
-  // Calculate cell width/height (board is an 8x8 grid)
-  const cellWidth = boardRect.width / cols;
-  const cellHeight = boardRect.height / rows;
-  let newCol = Math.floor(x / cellWidth);
-  let newRow = Math.floor(y / cellHeight);
-  // Clamp the values to be within the board boundaries
-  newCol = Math.max(0, Math.min(newCol, cols - 1));
-  newRow = Math.max(0, Math.min(newRow, rows - 1));
-  currentPieceRow = newRow;
-  currentPieceCol = newCol;
-  showPreview(pieceTray[currentPieceIndex], currentPieceRow, currentPieceCol);
-}
-
-function onBoardTouchEnd(e) {
-  if (!movingPiece) return;
-  e.preventDefault();
-  // Confirm the placement of the piece when the touch ends
-  confirmPlacePiece();
-}
-
-// Attach touch event listeners to the game board
-gameBoardElement.addEventListener('touchmove', onBoardTouchMove, false);
-gameBoardElement.addEventListener('touchend', onBoardTouchEnd, false);
-gameBoardElement.addEventListener('touchcancel', onBoardTouchEnd, false);
-
-// ----- End of Mobile Touch Support Code ----- //
-
-// ... (Any remaining code)
