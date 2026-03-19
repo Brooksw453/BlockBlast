@@ -172,15 +172,15 @@ function renderPieceTray() {
     pieceDiv.addEventListener('mousedown', (e) => {
       e.preventDefault();
       if (piece.placed) return;
-      startDrag(index, e.clientX, e.clientY);
+      startDrag(index, e.clientX, e.clientY, false);
     });
 
-    // Touch drag
+    // Touch drag — single continuous gesture: touch piece → drag to board → release
     pieceDiv.addEventListener('touchstart', (e) => {
       e.preventDefault();
       if (piece.placed) return;
       const touch = e.touches[0];
-      startDrag(index, touch.clientX, touch.clientY);
+      startDrag(index, touch.clientX, touch.clientY, true);
     }, { passive: false });
 
     pieceTrayElement.appendChild(pieceDiv);
@@ -510,55 +510,70 @@ function confirmPlacePiece() {
 }
 
 // ---------- Drag & Drop (Mouse + Touch) ----------
-function startDrag(pieceIndex, clientX, clientY) {
+let dragIsTouch = false;      // Whether current drag is touch-based
+let dragGhostW = 0;           // Ghost width for centering
+let dragGhostH = 0;           // Ghost height for centering
+let dragOverBoard = false;    // Whether finger/cursor is currently over the board
+
+function startDrag(pieceIndex, clientX, clientY, isTouch) {
   if (gameOver) return;
   if (pieceTray[pieceIndex].placed) return;
 
   currentPieceIndex = pieceIndex;
   movingPiece = true;
   isDragging = true;
+  dragIsTouch = !!isTouch;
+  dragOverBoard = false;
   renderPieceTray();
 
   // Create ghost element
-  createDragGhost(pieceTray[pieceIndex], clientX, clientY);
+  createDragGhost(pieceTray[pieceIndex]);
 
-  // Calculate initial board position
+  // Position ghost at finger/cursor immediately
+  positionGhost(clientX, clientY);
+
+  // Try to show preview if already over the board
   updateDragPosition(clientX, clientY);
 }
 
-function createDragGhost(piece, x, y) {
+function createDragGhost(piece) {
   removeDragGhost();
 
   dragGhost = document.createElement('div');
   dragGhost.classList.add('drag-ghost');
 
-  let minX = Infinity, minY = Infinity;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   piece.shape.forEach(([dx, dy]) => {
-    minX = Math.min(minX, dx);
-    minY = Math.min(minY, dy);
+    minX = Math.min(minX, dx); minY = Math.min(minY, dy);
+    maxX = Math.max(maxX, dx); maxY = Math.max(maxY, dy);
   });
 
-  const blockSize = 40; // Larger ghost blocks
+  const blockSize = 36;
+  const gap = 2;
   piece.shape.forEach(([dx, dy]) => {
     const mini = document.createElement('div');
     mini.classList.add('mini-block');
     mini.classList.add('mini' + piece.color);
     mini.style.width = blockSize + 'px';
     mini.style.height = blockSize + 'px';
-    mini.style.left = (dx - minX) * (blockSize + 2) + 'px';
-    mini.style.top = (dy - minY) * (blockSize + 2) + 'px';
+    mini.style.left = (dx - minX) * (blockSize + gap) + 'px';
+    mini.style.top = (dy - minY) * (blockSize + gap) + 'px';
     dragGhost.appendChild(mini);
   });
 
+  // Calculate total ghost dimensions for centering
+  dragGhostW = (maxX - minX + 1) * (blockSize + gap);
+  dragGhostH = (maxY - minY + 1) * (blockSize + gap);
+
   document.body.appendChild(dragGhost);
-  positionGhost(x, y);
 }
 
 function positionGhost(x, y) {
   if (!dragGhost) return;
-  // Offset above cursor/finger so user can see placement
-  dragGhost.style.left = (x - 40) + 'px';
-  dragGhost.style.top = (y - 80) + 'px';
+  // Center ghost horizontally on finger, offset above for touch so user can see
+  const offsetY = dragIsTouch ? dragGhostH + 30 : dragGhostH / 2 + 10;
+  dragGhost.style.left = (x - dragGhostW / 2) + 'px';
+  dragGhost.style.top = (y - offsetY) + 'px';
 }
 
 function removeDragGhost() {
@@ -573,19 +588,33 @@ function updateDragPosition(clientX, clientY) {
   const cellWidth = boardRect.width / cols;
   const cellHeight = boardRect.height / rows;
 
-  // Use position offset above finger
-  const adjustedY = clientY - 60;
+  // For touch: map to where the ghost is visually (above the finger)
+  // For mouse: map directly to cursor position
+  const targetY = dragIsTouch ? clientY - dragGhostH - 30 + dragGhostH / 2 : clientY;
+  const targetX = clientX;
 
-  let newCol = Math.floor((clientX - boardRect.left) / cellWidth);
-  let newRow = Math.floor((adjustedY - boardRect.top) / cellHeight);
+  // Check if the target point is within/near the board
+  const margin = cellWidth; // allow some margin outside board edge
+  const overBoard = (
+    targetX >= boardRect.left - margin &&
+    targetX <= boardRect.right + margin &&
+    targetY >= boardRect.top - margin &&
+    targetY <= boardRect.bottom + margin
+  );
 
-  newCol = Math.max(0, Math.min(newCol, cols - 1));
-  newRow = Math.max(0, Math.min(newRow, rows - 1));
-
-  currentPieceRow = newRow;
-  currentPieceCol = newCol;
-
-  showPreview(pieceTray[currentPieceIndex], currentPieceRow, currentPieceCol);
+  if (overBoard) {
+    dragOverBoard = true;
+    let newCol = Math.floor((targetX - boardRect.left) / cellWidth);
+    let newRow = Math.floor((targetY - boardRect.top) / cellHeight);
+    newCol = Math.max(0, Math.min(newCol, cols - 1));
+    newRow = Math.max(0, Math.min(newRow, rows - 1));
+    currentPieceRow = newRow;
+    currentPieceCol = newCol;
+    showPreview(pieceTray[currentPieceIndex], currentPieceRow, currentPieceCol);
+  } else {
+    dragOverBoard = false;
+    clearPreview();
+  }
 }
 
 function endDrag() {
@@ -593,26 +622,28 @@ function endDrag() {
   isDragging = false;
   removeDragGhost();
 
-  // If over the board with valid placement, confirm
-  if (movingPiece) {
+  if (movingPiece && dragOverBoard) {
     const piece = pieceTray[currentPieceIndex];
     if (canPlacePiece(piece, currentPieceRow, currentPieceCol)) {
       confirmPlacePiece();
     } else {
       cancelMovePiece();
     }
+  } else {
+    cancelMovePiece();
   }
 }
 
 function cancelMovePiece() {
   movingPiece = false;
   isDragging = false;
+  dragOverBoard = false;
   removeDragGhost();
   clearPreview();
   renderPieceTray();
 }
 
-// Global mouse/touch handlers for drag
+// Global mouse handlers for drag
 document.addEventListener('mousemove', (e) => {
   if (!isDragging) return;
   e.preventDefault();
@@ -620,11 +651,12 @@ document.addEventListener('mousemove', (e) => {
   updateDragPosition(e.clientX, e.clientY);
 });
 
-document.addEventListener('mouseup', (e) => {
+document.addEventListener('mouseup', () => {
   if (!isDragging) return;
   endDrag();
 });
 
+// Global touch handlers for drag — on document for uninterrupted tracking
 document.addEventListener('touchmove', (e) => {
   if (!isDragging) return;
   e.preventDefault();
@@ -633,12 +665,12 @@ document.addEventListener('touchmove', (e) => {
   updateDragPosition(touch.clientX, touch.clientY);
 }, { passive: false });
 
-document.addEventListener('touchend', (e) => {
+document.addEventListener('touchend', () => {
   if (!isDragging) return;
   endDrag();
 });
 
-document.addEventListener('touchcancel', (e) => {
+document.addEventListener('touchcancel', () => {
   if (!isDragging) return;
   cancelMovePiece();
 });

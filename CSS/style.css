@@ -277,6 +277,7 @@ button:active {
     0 0 30px rgba(0, 255, 255, 0.03),
     inset 0 0 40px rgba(0, 0, 0, 0.3);
   position: relative;
+  touch-action: none;
 }
 
 .cell {
@@ -344,6 +345,7 @@ button:active {
   justify-content: center;
   margin: 15px 0;
   gap: 10px;
+  touch-action: none;
 }
 
 .piece {
@@ -355,6 +357,9 @@ button:active {
   cursor: pointer;
   transition: all 0.2s ease;
   background: rgba(0, 255, 255, 0.02);
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .piece:hover {
