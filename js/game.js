@@ -173,7 +173,7 @@ function renderPieceTray() {
       pieceDiv.style.pointerEvents = 'none';
     }
 
-    // Calculate shape bounds for centering
+    // Calculate shape bounds for centering & dynamic sizing
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     piece.shape.forEach(([dx, dy]) => {
       minX = Math.min(minX, dx);
@@ -183,17 +183,25 @@ function renderPieceTray() {
     });
     const shapeWidth = maxX - minX + 1;
     const shapeHeight = maxY - minY + 1;
-    const maxDim = Math.max(shapeWidth, shapeHeight, 4);
-    const blockSize = 18;
-    const offsetX = Math.floor((maxDim - shapeWidth) / 2);
-    const offsetY = Math.floor((maxDim - shapeHeight) / 2);
+    const maxDim = Math.max(shapeWidth, shapeHeight);
+
+    // Dynamically scale block size so large shapes fit in the tray container
+    const containerUsable = 70; // usable area inside 85px piece div
+    const blockSize = Math.min(18, Math.floor(containerUsable / maxDim));
+    const totalW = shapeWidth * blockSize;
+    const totalH = shapeHeight * blockSize;
+    // Center the shape within the piece container
+    const startX = Math.floor((containerUsable - totalW) / 2) + 4;
+    const startY = Math.floor((containerUsable - totalH) / 2) + 4;
 
     piece.shape.forEach(([dx, dy]) => {
       const mini = document.createElement('div');
       mini.classList.add('mini-block');
       if (piece.color) mini.classList.add('mini' + piece.color);
-      mini.style.left = (dx - minX + offsetX) * blockSize + 'px';
-      mini.style.top = (dy - minY + offsetY) * blockSize + 'px';
+      mini.style.width = blockSize + 'px';
+      mini.style.height = blockSize + 'px';
+      mini.style.left = startX + (dx - minX) * blockSize + 'px';
+      mini.style.top = startY + (dy - minY) * blockSize + 'px';
       pieceDiv.appendChild(mini);
     });
 
@@ -273,10 +281,12 @@ function showPreview(piece, topLeftRow, topLeftCol) {
 }
 
 // ---------- Line Clearing ----------
-// Check and clear full rows/columns. Returns { count, cells } for this pass only.
+// Check and clear full rows/columns. Returns { count, cells, clearedRows, clearedCols } for this pass only.
 function clearFullLines() {
   let linesCleared = 0;
   const clearedCells = [];
+  const clearedRows = [];
+  const clearedCols = [];
 
   // Check rows
   for (let r = 0; r < rows; r++) {
@@ -286,6 +296,7 @@ function clearFullLines() {
     }
     if (full) {
       linesCleared++;
+      clearedRows.push(r);
       for (let c = 0; c < cols; c++) {
         clearedCells.push({ r, c, color: board[r][c] });
         const cellElem = gameBoardElement.getElementsByClassName('cell')[r * cols + c];
@@ -303,6 +314,7 @@ function clearFullLines() {
     }
     if (full) {
       linesCleared++;
+      clearedCols.push(c);
       for (let r = 0; r < rows; r++) {
         if (!clearedCells.some(cell => cell.r === r && cell.c === c)) {
           clearedCells.push({ r, c, color: board[r][c] });
@@ -318,25 +330,37 @@ function clearFullLines() {
     playSound(clearSound);
   }
 
-  return { count: linesCleared, cells: clearedCells };
+  return { count: linesCleared, cells: clearedCells, clearedRows, clearedCols };
 }
 
 // ---------- Gravity ----------
-// Drop blocks down to fill empty gaps. Returns array of { fromR, fromC, toR, color } moves.
-function applyGravity() {
+// Only applies when horizontal rows are cleared.
+// Blocks ABOVE the cleared row(s) drop down to fill the gap.
+// Vertical column clears do NOT trigger gravity.
+function applyGravity(clearedRows) {
+  if (!clearedRows || clearedRows.length === 0) return [];
+
   const moves = [];
+  const clearedSet = new Set(clearedRows);
 
   for (let c = 0; c < cols; c++) {
-    // Start from bottom, find empty cells and pull blocks down
-    let writeRow = rows - 1;
+    // For each non-cleared row with a block, count how many cleared rows
+    // are BELOW it — that's how far down it needs to drop.
+    // Process from bottom to top to avoid overwriting.
     for (let r = rows - 1; r >= 0; r--) {
-      if (board[r][c] !== 0) {
-        if (r !== writeRow) {
-          moves.push({ fromR: r, fromC: c, toR: writeRow, color: board[r][c] });
-          board[writeRow][c] = board[r][c];
-          board[r][c] = 0;
-        }
-        writeRow--;
+      if (clearedSet.has(r)) continue;  // This row was cleared, skip
+      if (board[r][c] === 0) continue;  // Empty cell, skip
+
+      let dropBy = 0;
+      for (const cr of clearedRows) {
+        if (cr > r) dropBy++;
+      }
+
+      if (dropBy > 0) {
+        const newRow = r + dropBy;
+        moves.push({ fromR: r, fromC: c, toR: newRow, color: board[r][c] });
+        board[newRow][c] = board[r][c];
+        board[r][c] = 0;
       }
     }
   }
@@ -385,7 +409,7 @@ function animateGravityDrops(moves, callback) {
 // ---------- Cascade System ----------
 // Runs the full cascade loop: clear → particles → gravity → re-check → repeat
 function runCascade(cascadeLevel, totalLinesCleared, totalClearedCells) {
-  const { count: linesCleared, cells: clearedCells } = clearFullLines();
+  const { count: linesCleared, cells: clearedCells, clearedRows, clearedCols } = clearFullLines();
 
   if (linesCleared === 0) {
     // No more clears — cascade is done
@@ -446,12 +470,13 @@ function runCascade(cascadeLevel, totalLinesCleared, totalClearedCells) {
 
   animateScore(score);
 
-  // After flash animation, apply gravity then check for more clears
+  // After flash animation, apply gravity only if horizontal rows were cleared
+  // Vertical column clears do NOT trigger gravity
   setTimeout(() => {
     renderBoard();
 
-    // Apply gravity
-    const gravityMoves = applyGravity();
+    // Only apply gravity when rows were cleared (not column-only clears)
+    const gravityMoves = (clearedRows.length > 0) ? applyGravity(clearedRows) : [];
 
     if (gravityMoves.length > 0) {
       // Animate the drops, then check for new clears (cascade)
@@ -462,7 +487,7 @@ function runCascade(cascadeLevel, totalLinesCleared, totalClearedCells) {
         }, 150);
       });
     } else {
-      // No gravity needed, but still check for cascade (column clears might not trigger gravity)
+      // No gravity needed — finish cascade
       finishCascade(totalLinesCleared, totalClearedCells);
     }
   }, 400);

@@ -374,7 +374,7 @@ button:active {
   animation: selectedPulse 1.5s ease-in-out infinite;
 }
 
-/* Mini blocks in piece tray */
+/* Mini blocks in piece tray — sizes set dynamically by JS for proper fit */
 .mini-block {
   position: absolute;
   width: 18px;
@@ -538,10 +538,7 @@ button:active {
     height: 70px;
   }
 
-  .mini-block {
-    width: 15px;
-    height: 15px;
-  }
+  /* mini-block sizes are set dynamically by JS */
 
   #scoreBoard {
     gap: 15px;
